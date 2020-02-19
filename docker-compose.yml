@@ -1,0 +1,121 @@
+version: '3'
+services:
+  # Lumen Serviceg
+  stack-lumen:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: digitalocean.com/php
+    container_name: stack-lumen
+    restart: unless-stopped
+    tty: true
+    environment:
+      SERVICE_NAME: stack-lumen
+      SERVICE_TAGS: dev
+    working_dir: /var/www
+    volumes:
+      - ./lumen:/var/www
+      - ./php/local.ini:/usr/local/etc/php/conf.d/local.ini
+    networks:
+      - stack-network
+
+  # Nginx Service
+  stack-webserver:
+    image: nginx:alpine
+    container_name: stack-webserver
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./lumen:/var/www
+      - ./nginx/conf.d/:/etc/nginx/conf.d/
+    networks:
+      - stack-network
+
+  # Mongo Service
+  stack-mongo:
+    image: mongo
+    container_name: stack-mongo
+    volumes:
+      - ./data/mongo:/data/db
+    ports:
+      - "27027:27017"
+    networks:
+      - stack-network
+
+  # Redis Service
+  stack-redis:
+    image: redis
+    container_name: stack-redis
+    ports:
+      - "26379:6379"
+    networks:
+      - stack-network
+
+  # Elastic Search Service
+  stack-elasticsearch:
+    build:
+      context: elasticsearch/
+      args:
+        ELK_VERSION: $ELK_VERSION
+    volumes:
+      - ./elasticsearch/config/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - ./elasticsearch:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      ES_JAVA_OPTS: "-Xmx256m -Xms256m"
+      ELASTIC_PASSWORD: password
+      # Use single node discovery in order to disable production mode and avoid bootstrap checks
+      # see https://www.elastic.co/guide/en/elasticsearch/reference/current/bootstrap-checks.html
+      discovery.type: single-node
+    networks:
+      - stack-network
+
+  # Logstash Service
+  stack-logstash:
+    build:
+      context: logstash/
+      args:
+        ELK_VERSION: $ELK_VERSION
+    volumes:
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml
+      - ./logstash/pipeline:/usr/share/logstash/pipeline
+    ports:
+      - "5000:5000/tcp"
+      - "5000:5000/udp"
+      - "9600:9600"
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    networks:
+      - stack-network
+    depends_on:
+      - stack-elasticsearch
+
+  # Kibana Service
+  stack-kibana:
+    build:
+      context: kibana/
+      args:
+        ELK_VERSION: $ELK_VERSION
+    volumes:
+      - ./kibana/config/kibana.yml:/usr/share/kibana/config/kibana.yml
+    ports:
+      - "5601:5601"
+    networks:
+      - stack-network
+    depends_on:
+      - stack-elasticsearch
+
+# Docker Networks
+networks:
+  stack-network:
+    driver: bridge
+
+# Volumes
+volumes:
+  dbdata:
+    driver: local
